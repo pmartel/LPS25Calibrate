@@ -1,37 +1,44 @@
+/* calibrating LPS25 sensors (absolute) as a single gauge pressure sensor
+ * Demo for getting individual unified sensor data from the 2 LPS2X series
+ * first version display/ plot differences 
+ * second version display 1024 samples for external processing
+ * third version specify samples and rate
+ * fourth version use long integeers instead of floats.  Note that Adafruit_sensor.h
+ *
+ * note that the LPS25 has 2 I2c base addresses, 0x5D with no jumper
+ * and 0x5C with a jumper betweenthe gnd and sd0 pins
+ */
+
 #include <Adafruit_Sensor.h>
-
-// Demo for getting individual unified sensor data from the 2 LPS2X series
-// first version display/ plot differences 
-// second version display 1024 samples for external processing
-// third version specify samples and rate
-// fourth version use long integeers instead of floats.  Note that Adafruit_sensor.h
-    // defines pressure and temperature as floats anyhow.  Scaling for floats for reference is 
-    // pressure->pressure = (unscaled_pressure / 4096.0);
-    // temp->temperature = (unscaled_temp / 480) + 42.5;
-
-
-
-#include <Adafruit_LPS2X_int.h>
+#include <Adafruit_LPS2X.h>
 #include "Streaming.h" // C++ style output
 
-Adafruit_LPS2X_int lps, lps2;
+Adafruit_LPS25 lps, lps2;
 Adafruit_Sensor *lps_temp, *lps_pressure, *lps2_temp, *lps2_pressure;
 
 long nSamples;
 int nMsec;
 String inStr;
+String sJumper;
+bool extJumper;
 
 void setup(void) {
   pinMode( A0, OUTPUT); // set up to blink at end
   digitalWrite( A0, LOW);
   
   Serial.begin(115200);
+  Serial.setTimeout(1000000); // long timeout to avoid skipping input 
   while (!Serial) {
     delay(10); // will pause Zero, Leonardo, etc until serial console opens
   }
 
-  Serial << "version 1 skip 3" << endl;
-  Serial << "Dual Adafruit LPS2X data samples.  Save for external processing.\n";
+  Serial.print( "Does the external sensor have a jumper? (y/n)");
+  while( Serial.available() == 0 ) {} // wait for character
+  
+  sJumper = (char)Serial.read();
+  extJumper = sJumper.startsWith("y");
+  //Serial << "<" <<sJumper << "> length " <<sJumper.length() << " external jumper: " << extJumper << endl;
+  
   // default address is 0x5D
   if (!lps.begin_I2C()) {
     Serial << "Failed to find LPS2X (0x5D) chip\n";
@@ -45,7 +52,6 @@ void setup(void) {
       delay(10);
     }
   }
-  Serial.setTimeout(60000);
   Serial << "#Samples? ";
   nSamples = Serial.parseInt();
   Serial << "delay msec? ";
@@ -75,18 +81,26 @@ void loop() {
   sensors_event_t pressure, pressure2;
   sensors_event_t temp, temp2;
   long  t; // delay() does not take into account the time in the loop
-  long i;
-
+  int i;
+  float difPressure;
+  
   //Serial << endl;
-  //Serial << nSamples << " Samples at " << nMsec << " msec" << endl;
-  Serial << "n\tP1\tP2\tT1\tT2" << endl;
+  Serial << nSamples << " Samples at " << nMsec << " msec" << endl;
+  Serial << "External jumper: " << extJumper << endl;
+  Serial << "n\tP1\tP2\tPdif" << endl;
   for( i = 0; i < nSamples; i++ ) {
     t = millis();
     lps_temp->getEvent(&temp);
     lps_pressure->getEvent(&pressure);
     lps2_temp->getEvent(&temp2);
     lps2_pressure->getEvent(&pressure2);
-    Serial << i << "\t" << (long)pressure.pressure << "\t" << (long)pressure2.pressure << "\t" << (long)temp.temperature << "\t" << (long)temp2.temperature << endl;
+    if (extJumper ) {
+      difPressure = pressure.pressure - pressure2.pressure;
+    } else {
+      difPressure = pressure2.pressure - pressure.pressure;
+    }
+      
+    Serial << i << "\t" << pressure.pressure << "\t" << pressure2.pressure << "\t"  << difPressure << endl;
     while( millis() < t + nMsec) {} // wait until nMsec from start of loop
   }
   while(1) { // flash LED for long runs
